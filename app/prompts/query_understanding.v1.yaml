@@ -1,0 +1,31 @@
+name: query_understanding
+version: 1
+description: |
+  Single LLM call doing 3 things:
+   1. Coreference resolution (use history to expand "it/that/the previous")
+   2. Intent classification (needs_retrieval | chitchat)
+   3. Optional multi-query rewriting (only when enable_multi_query is true)
+  Returns a UnderstandingResult JSON.
+inputs: [query, history, enable_multi_query]
+template: |
+  你是企业知识库的 Query 解析器。给定用户当前 query 与历史对话，输出 JSON 含三个字段。
+
+  字段定义：
+  - intent: "needs_retrieval"（需要查知识库）或 "chitchat"（闲聊/问候/感谢/再见，无具体信息需求）
+  - resolved_query: 把 query 中的代词（"它/那个/上面提到的/前面说的"等）替换为历史里实际指代的实体；若无指代或无历史，则原样返回
+  - rewrites: 仅当 enable_multi_query == "true" 且 intent == "needs_retrieval" 时，产出 2-3 条同义改写（不同表达、覆盖更广关键词）；否则空数组 []
+
+  约束：
+  - 不要改变 query 的本意
+  - resolved_query 始终为字符串
+  - 闲聊场景一律 rewrites=[]
+  - 输出严格符合 JSON schema，不要附加文字
+
+  ---
+  历史对话：
+  {history}
+  ---
+  当前 query: {query}
+  enable_multi_query: {enable_multi_query}
+
+  输出 JSON：

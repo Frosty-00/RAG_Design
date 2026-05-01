@@ -1,0 +1,101 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "self-rag"
+version = "0.1.0"
+description = "Enterprise RAG system: FastAPI + Milvus + LlamaIndex + Vertex Gemini"
+requires-python = ">=3.11,<3.13"
+authors = [{ name = "self-rag" }]
+
+dependencies = [
+    # --- Web framework ---
+    "fastapi>=0.115,<0.117",
+    "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.20",
+    "httpx>=0.27",
+
+    # --- Config / logging ---
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "structlog>=24.4",
+    "python-dotenv>=1.0",
+
+    # --- Storage clients (used by /readyz health probe) ---
+    "redis>=5.2",
+    "pymilvus>=2.4.10,<2.5",
+    "minio>=7.2",
+
+    # pymilvus 2.4 still imports pkg_resources, removed in setuptools 81+
+    "setuptools<81",
+
+    # --- Observability (Layer 9 will fully wire this) ---
+    "prometheus-fastapi-instrumentator>=7.0",
+
+    # --- ML / models (Layer 3) ---
+    # CPU torch is fine for local dev; Layer 15a will optimize via ONNX
+    "torch>=2.2,<3",
+    "transformers>=4.40,<5",
+    "FlagEmbedding>=1.3,<2",
+    "sentencepiece>=0.2",          # required by BGE-M3 tokenizer
+
+    # --- LlamaIndex (low-level components only — see plan §"LlamaIndex 使用边界") ---
+    # Bumped from 0.11 → 0.14 when adding llama-parse (which transitively
+    # requires the newer core). MarkdownNodeParser/SentenceSplitter API
+    # is stable across this jump; chunking smoke-tested green.
+    "llama-index-core>=0.14,<0.15",
+
+    # --- Document parsing (Layer 4) ---
+    # PyMuPDF is the primary PDF backend — pypdf badly mis-decodes Chinese
+    # PDFs whose fonts lack a ToUnicode CMap (common for files exported by
+    # WPS / Word 中文版 / online tools). PyMuPDF (MuPDF C lib) handles those
+    # correctly. pypdf kept as a secondary fallback for `page.images`.
+    "pymupdf>=1.24",
+    "pypdf>=5.1",
+    # LlamaParse (premium SaaS) is the *primary* PDF backend when
+    # LLAMA_CLOUD_API_KEY is set. PyMuPDF stays as the offline fallback.
+    "llama-parse>=0.5",
+    "python-docx>=1.1",
+    "markdown-it-py>=3.0",
+    "pillow>=10.0",
+    "beautifulsoup4>=4.12",      # HTML
+    "lxml>=5.0",                 # bs4 backend
+    "openpyxl>=3.1",             # XLSX
+    "python-pptx>=1.0",          # PPTX
+    # OCR: using RapidOCR (ONNX port of PaddleOCR) instead of paddlepaddle —
+    # see docs/layer-4.md "OCR engine choice" for rationale.
+    "rapidocr-onnxruntime>=1.4",
+
+    # --- Async pipeline (Layer 5) ---
+    "celery>=5.4,<6",
+
+    # --- LLM (Layer 7): Vertex Gemini + DeepSeek (OpenAI-compatible) ---
+    "google-genai>=1.0",
+    "openai>=1.50",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+    "reportlab>=4.0",     # generate fixture PDFs in tests
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

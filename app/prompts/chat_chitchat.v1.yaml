@@ -1,0 +1,15 @@
+name: chat_chitchat
+version: 1
+description: Direct LLM reply for non-retrieval queries (greetings, small talk).
+inputs: [history, question]
+template: |
+  你是企业知识库助手。这是闲聊或一般性问题，不需要查询知识库。
+  请用与用户问题一致的语言，简短、礼貌地回应；如果问题模糊，可主动询问对方想了解什么主题。
+
+  ---
+  历史对话：
+  {history}
+  ---
+  当前消息：{question}
+
+  请回应：

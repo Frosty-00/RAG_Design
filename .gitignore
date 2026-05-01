@@ -1,0 +1,65 @@
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*-credentials*.json
+**/google-credentials*.json
+# GCP service account JSONs commonly look like `{project-id}-{hash}.json`.
+# This catches that pattern without false-positives on regular config:
+service-account*.json
+*service_account*.json
+*-service-account*.json
+secrets/
+.secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# uv
+.uv/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Docker volumes (mounted into containers)
+volumes/
+
+# Model cache
+.model_cache/
+.huggingface/
+
+# Logs / tmp
+*.log
+.tmp/
+.cache/
+
+# Eval reports (keep dataset, ignore generated reports binaries)
+eval/reports/*.json
+eval/reports/*.md
+!eval/reports/.gitkeep
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

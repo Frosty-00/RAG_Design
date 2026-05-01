@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"/d/Anaconda/envs/self_RAG_2/python.exe\" -m pytest tests/integration/test_eval_api.py -v)",
+      "Bash(\"/d/Anaconda/envs/self_RAG_2/python.exe\" -m pytest tests/)",
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; node --version; npm --version)"
+    ]
+  }
+}
