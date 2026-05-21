@@ -1,21 +1,31 @@
-import { LogOut } from "lucide-react";
+import { LogOut, Shield, User } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useMe } from "@/hooks/use-admin";
 import { clearToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
-const links = [
+const baseLinks = [
   { to: "/chat", label: "Chat" },
   { to: "/documents", label: "Documents" },
   { to: "/eval", label: "Eval" },
 ];
-// Debug page only registered in dev (see App.tsx)
-if (import.meta.env.DEV) {
-  links.push({ to: "/debug", label: "Debug" });
-}
 
 export function Nav({ ready }: { ready: boolean }) {
+  const me = useMe();
+  // Admin link only when current user has admin role — the page itself
+  // also re-checks via /admin/me, but hiding the link avoids 403 noise.
+  const links = me.data?.is_admin
+    ? [...baseLinks, { to: "/admin", label: "Admin" }]
+    : baseLinks;
+
+  // Debug page only registered in dev (see App.tsx)
+  const finalLinks = import.meta.env.DEV
+    ? [...links, { to: "/debug", label: "Debug" }]
+    : links;
+
   return (
     <nav className="flex items-center justify-between border-b bg-background px-6 py-3">
       <div className="flex items-center gap-2">
@@ -29,7 +39,7 @@ export function Nav({ ready }: { ready: boolean }) {
         />
       </div>
       <div className="flex items-center gap-1">
-        {links.map((l) => (
+        {finalLinks.map((l) => (
           <NavLink
             key={l.to}
             to={l.to}
@@ -45,6 +55,26 @@ export function Nav({ ready }: { ready: boolean }) {
             {l.label}
           </NavLink>
         ))}
+        {/* Current user badge — shows who you're signed in as. Critical for
+            ACL demos where you flip between alice / bob / admin. */}
+        {me.data && (
+          <Badge
+            variant={me.data.is_admin ? "warning" : "secondary"}
+            className="ml-2 gap-1"
+            title={
+              me.data.groups.length
+                ? `groups: ${me.data.groups.join(", ")}`
+                : "no groups"
+            }
+          >
+            {me.data.is_admin ? (
+              <Shield className="h-3 w-3" />
+            ) : (
+              <User className="h-3 w-3" />
+            )}
+            {me.data.user_id}
+          </Badge>
+        )}
         <Button
           variant="ghost"
           size="sm"

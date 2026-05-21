@@ -52,10 +52,19 @@ volumes/
 .tmp/
 .cache/
 
-# Eval reports (keep dataset, ignore generated reports binaries)
+# Eval reports + datasets (both are per-installation runtime data)
 eval/reports/*.json
 eval/reports/*.md
 !eval/reports/.gitkeep
+eval/datasets/*.jsonl
+!eval/datasets/.gitkeep
+
+# Local dev binaries (downloaded tools, not project deps)
+cloudflared.exe
+*.exe
+
+# Claude Code personal state
+.claude/
 
 # OS / IDE
 .DS_Store

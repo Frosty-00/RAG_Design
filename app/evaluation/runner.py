@@ -205,10 +205,31 @@ class EvalRunner:
                     if ev.meta:
                         meta = ev.meta
                         prompt_versions = ev.meta.get("prompt_versions", {}) or {}
-            retrieved_ids = [c.chunk_id for c in citations]
+            # Prefer the raw post-expansion chunk list from meta — the
+            # `citations` list is grouped (one entry per consecutive cluster
+            # head) for UI display, so it under-reports what was actually
+            # retrieved. Falls back to citation chunk_ids for backward
+            # compatibility (chitchat path / older pipelines).
+            full_ids = (meta or {}).get("retrieved_chunk_ids")
+            if full_ids:
+                retrieved_ids = list(full_ids)
+            else:
+                retrieved_ids = [c.chunk_id for c in citations]
 
         answer = "".join(answer_buf).strip()
-        context = self._format_context(citations)
+        # Prefer full chunk texts from meta (set by RAGPipeline) over the
+        # truncated citation previews — the judge must see the same content
+        # the answer-generator LLM saw, else it'll mark grounded claims as
+        # "unsupported" simply because the supporting span was clipped.
+        # Falls back to citation previews for retrieval-only / chitchat / older
+        # pipelines that don't populate retrieved_chunk_texts.
+        full_texts = (meta or {}).get("retrieved_chunk_texts")
+        if full_texts:
+            context = "\n\n".join(
+                f"[{i + 1}] {t}" for i, t in enumerate(full_texts)
+            )
+        else:
+            context = self._format_context(citations)
 
         # Retrieval metrics
         gt = sample.ground_truth_chunks

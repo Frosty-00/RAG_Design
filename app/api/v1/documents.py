@@ -12,7 +12,7 @@ from app.api.deps import get_requester
 from app.core.logger import get_logger
 from app.repositories.milvus import Requester
 from app.repositories.minio_repo import MinioRepository, doc_key
-from app.repositories.redis_repo import RedisRepository
+from app.repositories.redis_repo import RedisRepository, _doc_visible_to
 from app.workers.tasks.cascade_delete import cascade_delete
 from app.workers.tasks.ingest import ingest_document
 
@@ -56,6 +56,21 @@ def _build_acl(public: bool, users: list[str], groups: list[str]) -> dict:
     return {"public": bool(public), "users": users, "groups": groups}
 
 
+def _can_view(meta: dict, requester: Requester) -> bool:
+    """Read-access predicate. Mirrors `list_visible_docs` semantics so a
+    doc visible in the list is also openable for detail/chunks/task.
+    admin → unconditional yes."""
+    if requester.is_admin:
+        return True
+    return _doc_visible_to(meta, requester.user_id, set(requester.groups))
+
+
+def _can_modify(meta: dict, requester: Requester) -> bool:
+    """Write-access predicate (delete). Stricter than view — only the
+    owner or an admin may delete; ACL-shared collaborators cannot."""
+    return requester.is_admin or meta.get("owner_id") == requester.user_id
+
+
 @router.post("", response_model=UploadResponse)
 async def upload(
     file: Annotated[UploadFile, File(...)],
@@ -73,7 +88,44 @@ async def upload(
         raise HTTPException(status_code=400, detail="missing_filename")
 
     doc_id = hashlib.sha256(content).hexdigest()[:16]
-    acl = _build_acl(public, _parse_csv(users), _parse_csv(groups))
+
+    # ── Department-scoped ACL enforcement for non-admin uploaders ──────
+    # Rules (only when requester.is_admin == False):
+    #   1. `public` is admin-only — non-admin attempting public=true → 403.
+    #   2. `groups` must be a subset of the caller's own groups; granting
+    #      "hr" access from someone outside HR would let them leak data
+    #      out of their department. 403 on violation.
+    #   3. If non-admin specifies neither users/groups/public, default
+    #      `groups` to the caller's full group set so their colleagues
+    #      can see it (the "department-shared" expectation). Without
+    #      this default, an HR member's upload would be invisible to
+    #      other HR members.
+    parsed_users = _parse_csv(users)
+    parsed_groups = _parse_csv(groups)
+    if not requester.is_admin:
+        if public:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "public_admin_only",
+                        "message": "Only admins can publish to all users."},
+            )
+        caller_groups = set(requester.groups)
+        out_of_scope = [g for g in parsed_groups if g not in caller_groups]
+        if out_of_scope:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "groups_out_of_scope",
+                        "message": ("You can only grant access to groups "
+                                    "you belong to."),
+                        "allowed_groups": sorted(caller_groups),
+                        "requested_groups": parsed_groups},
+            )
+        # Default to all caller's groups when no ACL provided — keeps the
+        # doc visible to the uploader's department instead of going private.
+        if not parsed_users and not parsed_groups:
+            parsed_groups = sorted(caller_groups)
+
+    acl = _build_acl(public, parsed_users, parsed_groups)
 
     redis = RedisRepository()
     try:
@@ -146,12 +198,25 @@ async def upload(
 async def list_documents(
     requester: Requester = Depends(get_requester),
 ) -> list[DocumentMeta]:
+    """List every document the caller can see.
+
+    * admin → all docs in the library
+    * non-admin → owned + ACL-visible (public, ACL.users, ACL.groups overlap)
+
+    The non-admin path used to return *owned only*, which made the
+    Documents page lie: a doc admin granted you access to wouldn't show
+    up here even though Chat retrieval could see it. `list_visible_docs`
+    uses the same ACL semantics as the Milvus filter so the two are
+    always consistent.
+    """
     redis = RedisRepository()
     try:
         if requester.is_admin:
             docs = await redis.list_all_docs()
         else:
-            docs = await redis.list_owned_docs(requester.user_id)
+            docs = await redis.list_visible_docs(
+                requester.user_id, list(requester.groups),
+            )
     finally:
         await redis.close()
     docs.sort(key=lambda d: d.get("updated_at", ""), reverse=True)
@@ -170,7 +235,7 @@ async def get_document(
         await redis.close()
     if not meta:
         raise HTTPException(status_code=404, detail="not_found")
-    if not requester.is_admin and meta["owner_id"] != requester.user_id:
+    if not _can_view(meta, requester):
         raise HTTPException(status_code=403, detail="forbidden")
     return DocumentMeta(**meta)
 
@@ -211,7 +276,7 @@ async def list_doc_chunks(
         await redis.close()
     if not meta:
         raise HTTPException(status_code=404, detail="not_found")
-    if not requester.is_admin and meta["owner_id"] != requester.user_id:
+    if not _can_view(meta, requester):
         raise HTTPException(status_code=403, detail="forbidden")
 
     rows = MilvusRepository().list_chunks_by_doc(doc_id)
@@ -246,7 +311,7 @@ async def get_doc_task_status(
         meta = await redis.get_doc_meta(doc_id)
         if not meta:
             raise HTTPException(status_code=404, detail="not_found")
-        if not requester.is_admin and meta["owner_id"] != requester.user_id:
+        if not _can_view(meta, requester):
             raise HTTPException(status_code=403, detail="forbidden")
         tid = meta.get("latest_task_id")
         if not tid:
@@ -276,7 +341,10 @@ async def delete_document(
         meta = await redis.get_doc_meta(doc_id)
         if not meta:
             raise HTTPException(status_code=404, detail="not_found")
-        if not requester.is_admin and meta["owner_id"] != requester.user_id:
+        # Delete uses the stricter `_can_modify` (owner or admin only) —
+        # ACL-shared collaborators can VIEW but never DELETE someone else's
+        # upload. This is a deliberate split from the read predicate.
+        if not _can_modify(meta, requester):
             raise HTTPException(status_code=403, detail="forbidden")
 
         # ── 1. Milvus: drop all chunks (all versions) of this doc ──────

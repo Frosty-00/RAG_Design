@@ -88,7 +88,8 @@ export default function DocumentsPage() {
                 <thead className="text-left text-xs uppercase text-muted-foreground">
                   <tr className="border-b">
                     <th className="px-4 py-2">Filename</th>
-                    <th className="px-4 py-2">ID</th>
+                    <th className="px-4 py-2">Owner</th>
+                    <th className="px-4 py-2">Access</th>
                     <th className="px-4 py-2">Ver</th>
                     <th className="px-4 py-2">Status</th>
                     <th className="px-4 py-2">Chunks</th>

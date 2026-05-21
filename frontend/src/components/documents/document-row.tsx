@@ -47,7 +47,9 @@ export function InflightRow({
   return (
     <tr className="border-b last:border-b-0 bg-muted/20">
       <td className="px-4 py-2 font-medium">{filename}</td>
-      <td className="px-4 py-2 text-xs text-muted-foreground">—</td>
+      {/* Owner / Access / ID columns blank until the server row arrives. */}
+      <td className="px-4 py-2 text-muted-foreground">—</td>
+      <td className="px-4 py-2 text-muted-foreground">—</td>
       <td className="px-4 py-2 text-muted-foreground">—</td>
       <td className="px-4 py-2">
         <div className="flex items-center gap-1.5">
@@ -83,6 +85,53 @@ export function InflightRow({
   );
 }
 
+
+/** Compact ACL summary: Public badge OR per-group + per-user chips.
+ *  Private docs (no public, no users, no groups) show "private" tag. */
+function AclBadges({ acl }: { acl: DocumentMeta["acl"] }) {
+  const a = acl ?? {};
+  if (a.public) {
+    return (
+      <Badge variant="success" className="text-[10px]">
+        public
+      </Badge>
+    );
+  }
+  const groups = a.groups ?? [];
+  const users = a.users ?? [];
+  if (!groups.length && !users.length) {
+    return (
+      <span className="text-[10px] text-muted-foreground italic">
+        owner only
+      </span>
+    );
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {groups.map((g) => (
+        <Badge
+          key={`g-${g}`}
+          variant="secondary"
+          className="text-[10px]"
+          title={`Group: ${g}`}
+        >
+          # {g}
+        </Badge>
+      ))}
+      {users.map((u) => (
+        <Badge
+          key={`u-${u}`}
+          variant="default"
+          className="text-[10px]"
+          title={`User: ${u}`}
+        >
+          @ {u}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
 export function DocumentRow({ doc }: { doc: DocumentMeta }) {
   const del = useDeleteDocument();
   const [open, setOpen] = useState(false);
@@ -105,8 +154,18 @@ export function DocumentRow({ doc }: { doc: DocumentMeta }) {
 
   return (
     <tr className="border-b last:border-b-0 hover:bg-muted/40">
-      <td className="px-4 py-2 font-medium">{doc.filename}</td>
-      <td className="px-4 py-2 text-xs text-muted-foreground">{doc.doc_id}</td>
+      <td className="px-4 py-2 font-medium">
+        {doc.filename}
+        <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+          {doc.doc_id}
+        </p>
+      </td>
+      <td className="px-4 py-2 text-xs text-muted-foreground">
+        {doc.owner_id}
+      </td>
+      <td className="px-4 py-2">
+        <AclBadges acl={doc.acl} />
+      </td>
       <td className="px-4 py-2">v{doc.latest_version}</td>
       <td className="px-4 py-2">
         <Badge variant={variant} title={doc.error ?? undefined}>

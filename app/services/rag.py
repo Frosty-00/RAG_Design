@@ -312,7 +312,10 @@ class RAGPipeline:
                 speculative_used = True
             else:
                 spec_task.cancel()
-                with contextlib_suppress():
+                # Drain the cancelled speculative task so the asyncio
+                # cleanup doesn't log a "Task exception was never retrieved"
+                # warning. The result is unused (we re-retrieve below).
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await spec_task
                 chunks = await self._do_retrieval(understanding, requester)
         except Exception as e:  # noqa: BLE001
@@ -361,6 +364,20 @@ class RAGPipeline:
                 "path": "rag",
                 "speculative_used": speculative_used,
                 "n_chunks": len(chunks),
+                # Full list of chunk_ids retrieved (post-expansion, pre-grouping).
+                # `citations` is the UI-friendly merged view (one entry per
+                # consecutive-chunk cluster), so it loses per-chunk identity.
+                # EvalRunner needs the raw list to compute hit@k accurately —
+                # without this, a ground-truth chunk in the *middle* of a
+                # cluster is invisible to evaluation and shows up as a miss.
+                "retrieved_chunk_ids": [c.chunk_id for c in chunks],
+                # Full chunk texts (not truncated like citation.text_preview).
+                # EvalRunner feeds these to the judge — without them the judge
+                # sees a 200-char preview per cluster and incorrectly flags
+                # claims as "unsupported" simply because the supporting
+                # sentence falls outside the truncation window. UI ignores
+                # this field; it only inflates SSE payload by ~20-40KB.
+                "retrieved_chunk_texts": [c.text for c in chunks],
                 "elapsed_ms": round(elapsed, 1),
                 "prompt_versions": {
                     "chat_rag": rendered.version,

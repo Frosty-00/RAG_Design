@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
 import { useEvalDatasets, useStartEval } from "@/hooks/use-eval";
+import { ApiError } from "@/lib/api";
 
 export function StartRunForm() {
   const start = useStartEval();
@@ -14,9 +15,17 @@ export function StartRunForm() {
   const [mode, setMode] = useState<"retrieval_only" | "full">("full");
   const [limit, setLimit] = useState<string>("");
 
-  // Pick the first available dataset by default once we know what's there
+  // Keep the selected dataset in sync with what actually exists on disk.
+  // Two cases handled:
+  //   * first load → no selection yet → pick the first available
+  //   * stale selection → user previously chose foo.jsonl, then deleted /
+  //     regenerated it; current state still points at the deleted path and
+  //     submitting would 404 on the server side. Reset to the newest
+  //     available file (datasets are returned newest-first by the API).
   useEffect(() => {
-    if (!dataset && datasets.data && datasets.data.length > 0) {
+    if (!datasets.data || datasets.data.length === 0) return;
+    const stillExists = datasets.data.some((d) => d.path === dataset);
+    if (!dataset || !stillExists) {
       setDataset(datasets.data[0].path);
     }
   }, [datasets.data, dataset]);
@@ -31,7 +40,17 @@ export function StartRunForm() {
       const res = await start.mutateAsync(body);
       toast(`Eval started: ${res.run_id}`, "success");
     } catch (e) {
-      toast(`Eval failed to start: ${(e as Error)?.message ?? "?"}`, "error");
+      // Surface backend detail (e.g. "dataset_not_found") so the user can
+      // act — generic "Eval failed to start" alone is uninformative.
+      let msg = (e as Error)?.message ?? "?";
+      if (e instanceof ApiError) {
+        const detail =
+          typeof e.body === "object" && e.body && "detail" in e.body
+            ? String((e.body as { detail: unknown }).detail)
+            : null;
+        msg = detail ? `${e.status} ${detail}` : `HTTP ${e.status}`;
+      }
+      toast(`Eval failed to start: ${msg}`, "error");
     }
   };
 

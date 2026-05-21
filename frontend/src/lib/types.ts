@@ -3,6 +3,12 @@
  *  `npm run gen:types`.
  */
 
+export interface DocumentAcl {
+  public?: boolean;
+  users?: string[];
+  groups?: string[];
+}
+
 export interface DocumentMeta {
   doc_id: string;
   filename: string;
@@ -11,7 +17,7 @@ export interface DocumentMeta {
   latest_status: string;
   n_chunks?: number | null;
   updated_at?: string | null;
-  acl?: Record<string, unknown> | null;
+  acl?: DocumentAcl | null;
   /** populated when latest_status === "failed" */
   error?: string | null;
 }

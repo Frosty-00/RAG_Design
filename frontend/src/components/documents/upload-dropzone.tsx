@@ -1,10 +1,11 @@
 import { Upload } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MultiSelectChips } from "@/components/ui/multi-select-chips";
 import { toast } from "@/components/ui/toast";
+import { useMe, usePickerUsers } from "@/hooks/use-admin";
 import { useUploadDocument } from "@/hooks/use-documents";
 import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -18,23 +19,74 @@ export function UploadDropzone() {
   const [dragOver, setDragOver] = useState(false);
   const [pending, setPending] = useState(0);
   const [isPublic, setIsPublic] = useState(false);
-  const [users, setUsers] = useState("");
-  const [groups, setGroups] = useState("");
+  // ACL fields are arrays internally (driven by MultiSelectChips), serialized
+  // to comma-separated strings on submit (backend's existing form-data shape).
+  const [users, setUsers] = useState<string[]>([]);
+  const [groups, setGroups] = useState<string[]>([]);
   const fileInput = useRef<HTMLInputElement | null>(null);
+
+  // Picker suggestions: every authenticated user can call /admin/picker/users.
+  // Backend scopes the result — admin sees all, non-admin sees colleagues in
+  // shared groups + admins + self. So the chip dropdown surfaces exactly the
+  // user_ids it's *legal* for the caller to grant access to.
+  const me = useMe();
+  const pickerQ = usePickerUsers();
+  const isAdmin = me.data?.is_admin ?? false;
+
+  const userSuggestions = useMemo<string[]>(
+    () => (pickerQ.data ?? []).map((u) => u.user_id).sort(),
+    [pickerQ.data],
+  );
+  // Group suggestions:
+  //   * admin → every group anyone has been assigned to (full org)
+  //   * non-admin → only their own groups (can't grant to departments
+  //                 they're not a member of — backend enforces too)
+  const groupSuggestions = useMemo<string[]>(() => {
+    if (isAdmin) {
+      const set = new Set<string>();
+      for (const u of pickerQ.data ?? []) {
+        for (const g of u.groups) set.add(g);
+      }
+      return Array.from(set).sort();
+    }
+    return [...(me.data?.groups ?? [])].sort();
+  }, [pickerQ.data, isAdmin, me.data]);
+
+  // Non-admin convenience: prefill `groups` with caller's own groups on
+  // first render. Without this an HR member's first upload would default
+  // to "owner only" instead of "shared with HR". Admin keeps empty default
+  // (admin actively decides ACL per upload).
+  const didPrefillGroups = useRef(false);
+  useEffect(() => {
+    if (
+      !didPrefillGroups.current
+      && me.data
+      && !isAdmin
+      && groups.length === 0
+      && (me.data.groups?.length ?? 0) > 0
+    ) {
+      setGroups([...me.data.groups]);
+      didPrefillGroups.current = true;
+    }
+  }, [me.data, isAdmin, groups.length]);
 
   const handleFiles = useCallback(
     async (files: FileList | File[]) => {
       const list = Array.from(files);
       if (!list.length) return;
       setPending((n) => n + list.length);
-      // Upload in parallel; report per-file outcome
+      // Convert arrays → CSV at the boundary; backend still expects CSV.
+      const usersCsv = users.join(",");
+      const groupsCsv = groups.join(",");
       await Promise.all(
         list.map(async (file) => {
-          // Optimistic row — appears in the documents table instantly.
           const tempId = startInflight(file.name, file.size);
           try {
             const res = await upload.mutateAsync({
-              file, isPublic, users, groups,
+              file,
+              isPublic,
+              users: usersCsv,
+              groups: groupsCsv,
             });
             succeedInflight(tempId, res.doc_id, res.version);
             if (res.status === "already_exists") {
@@ -43,8 +95,6 @@ export function UploadDropzone() {
               toast(`${file.name}: queued (v${res.version})`, "success");
             }
           } catch (e) {
-            // Surface the structured 409 message from the filename-dedupe
-            // guard so the user sees *why* it was rejected, not just "409".
             let msg: string;
             if (e instanceof ApiError) {
               const body = e.body as
@@ -113,7 +163,7 @@ export function UploadDropzone() {
         />
       </div>
 
-      <details className="rounded-lg border p-3 text-sm">
+      <details className="rounded-lg border p-3 text-sm" open>
         <summary className="cursor-pointer text-muted-foreground">
           Visibility &amp; ACL
         </summary>
@@ -123,32 +173,84 @@ export function UploadDropzone() {
               id="public"
               type="checkbox"
               checked={isPublic}
+              disabled={!isAdmin}
               onChange={(e) => setIsPublic(e.target.checked)}
             />
-            <Label htmlFor="public">Public (anyone can read)</Label>
+            <Label
+              htmlFor="public"
+              className={cn(!isAdmin && "text-muted-foreground")}
+            >
+              Public (anyone can read){" "}
+              {!isAdmin && (
+                <span className="text-[10px] text-muted-foreground">
+                  · admin only
+                </span>
+              )}
+            </Label>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <Label htmlFor="users" className="text-xs">
-                Users (comma-separated)
+              <Label htmlFor="users-input" className="text-xs">
+                Users
               </Label>
-              <Input
-                id="users" value={users}
-                onChange={(e) => setUsers(e.target.value)}
-                placeholder="alice, bob"
+              <MultiSelectChips
+                id="users-input"
+                value={users}
+                onChange={setUsers}
+                suggestions={userSuggestions}
+                // Non-admin can only grant to people the backend will let
+                // them see — strict selection avoids 403 surprises later.
+                allowCustom={isAdmin}
+                placeholder={
+                  isAdmin ? "click to pick or type" : "click to pick"
+                }
+                emptySuggestionsHint={
+                  pickerQ.isError
+                    ? "Sign in to load suggestions."
+                    : isAdmin
+                      ? "No users yet — go to Admin to create some."
+                      : "No colleagues in your group(s) yet."
+                }
               />
             </div>
             <div>
-              <Label htmlFor="groups" className="text-xs">
-                Groups (comma-separated)
+              <Label htmlFor="groups-input" className="text-xs">
+                Groups
+                {!isAdmin && (
+                  <span className="ml-2 text-[10px] text-muted-foreground">
+                    · scoped to your departments
+                  </span>
+                )}
               </Label>
-              <Input
-                id="groups" value={groups}
-                onChange={(e) => setGroups(e.target.value)}
-                placeholder="hr, eng"
+              <MultiSelectChips
+                id="groups-input"
+                value={groups}
+                onChange={setGroups}
+                suggestions={groupSuggestions}
+                // Non-admin: lock to their own groups — backend rejects
+                // anything else with 403 `groups_out_of_scope`.
+                allowCustom={isAdmin}
+                placeholder={
+                  isAdmin
+                    ? "click to pick or type"
+                    : groupSuggestions.length === 0
+                      ? "you don't belong to any group"
+                      : "click to pick"
+                }
+                emptySuggestionsHint={
+                  isAdmin
+                    ? "No groups yet — assign groups to users in Admin."
+                    : undefined
+                }
               />
             </div>
           </div>
+          {!isAdmin && (
+            <p className="text-[10px] text-muted-foreground">
+              Defaults to your department groups so colleagues can see this
+              file. Clear all to keep it owner-only.
+            </p>
+          )}
         </div>
       </details>
 
