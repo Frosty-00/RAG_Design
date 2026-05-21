@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      Hosted on GitHub Pages. QR code points here.
+      The viewport + media-friendly meta tags below are critical for
+      mobile playback:
+        - width=device-width      → page sizes to screen
+        - playsinline (on <video>) → iOS plays inline instead of forcing
+                                     full-screen on tap, but the player's
+                                     own button can still go full-screen
+                                     when the user wants
+        - controls                → shows native play/pause/seek UI
+        - preload="metadata"      → don't burn 4G fetching full mp4 until
+                                     user actually hits play
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <title>self·rag — demo</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #0b0d12;
+        color: #e5e7eb;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      .wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100%;
+        padding: 16px;
+        box-sizing: border-box;
+      }
+      .title {
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        opacity: 0.85;
+        margin: 0 0 12px;
+      }
+      .player {
+        width: 100%;
+        max-width: 960px;
+        aspect-ratio: 16 / 9;
+        background: #000;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+      }
+      video {
+        width: 100%;
+        height: 100%;
+        display: block;
+        background: #000;
+      }
+      .hint {
+        margin-top: 10px;
+        font-size: 11px;
+        opacity: 0.55;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <p class="title">self · rag — demo</p>
+      <div class="player">
+        <!--
+          playsinline:    iOS doesn't kick into its own full-screen UI
+          controls:       browser draws native player controls
+          preload=meta:   skip pre-fetching the body, only load duration etc
+          The OS chooses its native renderer (Safari's video stack on iOS,
+          ExoPlayer on Android Chrome) — both treat <video src=".mp4">
+          identically: native, hardware-decoded, full-screen on tap.
+        -->
+        <video
+          src="./RAG.mp4"
+          controls
+          playsinline
+          preload="metadata"
+          poster=""
+        ></video>
+      </div>
+      <p class="hint">Tap ▶ to play · pinch / button to full-screen</p>
+    </div>
+  </body>
+</html>
