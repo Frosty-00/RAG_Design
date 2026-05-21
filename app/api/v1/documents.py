@@ -354,6 +354,84 @@ class ChunksResponse(BaseModel):
     chunks: list[ChunkPreview]
 
 
+class AclUpdateRequest(BaseModel):
+    """Replace the doc's ACL wholesale. PATCH semantics on the whole acl
+    object, not field-level merge — admin sets the new canonical state."""
+    public: bool = False
+    users: list[str] = []
+    groups: list[str] = []
+
+
+@router.patch("/{doc_id}/acl", response_model=DocumentMeta)
+async def update_doc_acl(
+    doc_id: str,
+    body: AclUpdateRequest,
+    requester: Requester = Depends(get_requester),
+) -> DocumentMeta:
+    """Admin-only: replace the ACL of an existing doc.
+
+    Unlike `upload`'s auto-union (additive only, gated by uploader's own
+    departments), this lets admin **set any ACL** — including narrowing
+    or removing groups/users — so HR/IT cross-department collaboration
+    can be enabled without requiring both departments to re-upload.
+
+    Why admin-only:
+      * narrowing ACL is destructive (someone loses access)
+      * granting outside one's own group is escalation
+      * single-source-of-truth for permission changes
+      Owner can still delete the doc; that's a separate strict gate.
+    """
+    if not requester.is_admin:
+        raise HTTPException(status_code=403, detail="admin_only")
+
+    from app.repositories.milvus import MilvusRepository
+
+    redis = RedisRepository()
+    try:
+        meta = await redis.get_doc_meta(doc_id)
+        if not meta:
+            raise HTTPException(status_code=404, detail="not_found")
+
+        new_acl = {
+            "public": bool(body.public),
+            "users": sorted(set(body.users)),
+            "groups": sorted(set(body.groups)),
+        }
+        old_acl = meta.get("acl") or {}
+        if (
+            new_acl["public"] == bool(old_acl.get("public"))
+            and set(new_acl["users"]) == set(old_acl.get("users") or [])
+            and set(new_acl["groups"]) == set(old_acl.get("groups") or [])
+        ):
+            # No-op — return current meta without touching Milvus.
+            return DocumentMeta(**meta)
+
+        # Update Milvus chunks FIRST so retrieval sees the new ACL even if
+        # we crash before updating Redis (safer to over-restrict briefly
+        # than to over-share).
+        milvus = MilvusRepository()
+        milvus.update_acl_by_doc(doc_id, new_acl)
+        milvus.client.flush(milvus.collection)
+
+        meta["acl"] = new_acl
+        import time as _time
+        meta["updated_at"] = _time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", _time.gmtime(),
+        )
+        await redis.set_doc_meta(doc_id, meta)
+
+        # Bust retrieval cache: ret:* keys are content-hashed and don't
+        # encode ACL changes by themselves; safest blanket purge.
+        async for key in redis.client.scan_iter(match="ret:*"):
+            await redis.client.delete(key)
+    finally:
+        await redis.close()
+
+    log.info("api.acl.updated", doc_id=doc_id, by=requester.user_id,
+             new_acl=new_acl)
+    return DocumentMeta(**meta)
+
+
 @router.get("/{doc_id}/chunks", response_model=ChunksResponse)
 async def list_doc_chunks(
     doc_id: str,

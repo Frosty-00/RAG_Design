@@ -1,5 +1,5 @@
-import { Eye, Loader2, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { Eye, Loader2, Lock, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,8 +11,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { MultiSelectChips } from "@/components/ui/multi-select-chips";
 import { toast } from "@/components/ui/toast";
-import { useDeleteDocument, useDocChunks } from "@/hooks/use-documents";
+import { useMe, usePickerUsers } from "@/hooks/use-admin";
+import {
+  useDeleteDocument,
+  useDocChunks,
+  useUpdateDocAcl,
+} from "@/hooks/use-documents";
 import { ApiError } from "@/lib/api";
 import { useUploadsStore } from "@/stores/uploads";
 import type { DocumentMeta } from "@/lib/types";
@@ -134,10 +141,13 @@ function AclBadges({ acl }: { acl: DocumentMeta["acl"] }) {
 
 export function DocumentRow({ doc }: { doc: DocumentMeta }) {
   const del = useDeleteDocument();
+  const me = useMe();
   const [open, setOpen] = useState(false);
   const [chunksOpen, setChunksOpen] = useState(false);
+  const [aclOpen, setAclOpen] = useState(false);
 
   const variant: BadgeVariant = STATUS_VARIANT[doc.latest_status] ?? "secondary";
+  const isAdmin = me.data?.is_admin ?? false;
 
   const onDelete = async () => {
     try {
@@ -183,6 +193,17 @@ export function DocumentRow({ doc }: { doc: DocumentMeta }) {
         {doc.updated_at ? new Date(doc.updated_at).toLocaleString() : "—"}
       </td>
       <td className="px-4 py-2 text-right">
+        {isAdmin && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setAclOpen(true)}
+            aria-label="Edit access"
+            title="Edit access (admin)"
+          >
+            <Lock className="h-4 w-4" />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -235,6 +256,13 @@ export function DocumentRow({ doc }: { doc: DocumentMeta }) {
           open={chunksOpen}
           onOpenChange={setChunksOpen}
         />
+        {isAdmin && (
+          <EditAclDialog
+            doc={doc}
+            open={aclOpen}
+            onOpenChange={setAclOpen}
+          />
+        )}
       </td>
     </tr>
   );
@@ -308,6 +336,140 @@ function ChunksDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+/** Admin-only ACL editor.
+ *
+ *  Replaces the doc's ACL wholesale (PATCH /documents/{id}/acl). Useful
+ *  for cross-department sharing without forcing every department to
+ *  re-upload — admin just adds the second group here.
+ *
+ *  Constraints enforced server-side: admin only. Owner can still delete
+ *  the doc; this dialog only touches visibility.
+ */
+function EditAclDialog({
+  doc,
+  open,
+  onOpenChange,
+}: {
+  doc: DocumentMeta;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const update = useUpdateDocAcl();
+  const pickerQ = usePickerUsers();
+
+  // Initialise form from current ACL each time the dialog opens.
+  // (Re-mount via key would also work; this keeps state simple.)
+  const initialPublic = !!doc.acl?.public;
+  const initialUsers = useMemo(() => doc.acl?.users ?? [], [doc.acl]);
+  const initialGroups = useMemo(() => doc.acl?.groups ?? [], [doc.acl]);
+
+  const [isPublic, setIsPublic] = useState(initialPublic);
+  const [users, setUsers] = useState<string[]>(initialUsers);
+  const [groups, setGroups] = useState<string[]>(initialGroups);
+
+  // Reset form to the doc's current ACL whenever the dialog (re-)opens
+  // so editing one doc then opening another doesn't carry over state.
+  useEffect(() => {
+    if (open) {
+      setIsPublic(initialPublic);
+      setUsers(initialUsers);
+      setGroups(initialGroups);
+    }
+  }, [open, initialPublic, initialUsers, initialGroups]);
+
+  const userSuggestions = useMemo<string[]>(
+    () => (pickerQ.data ?? []).map((u) => u.user_id).sort(),
+    [pickerQ.data],
+  );
+  const groupSuggestions = useMemo<string[]>(() => {
+    const set = new Set<string>();
+    for (const u of pickerQ.data ?? []) {
+      for (const g of u.groups) set.add(g);
+    }
+    return Array.from(set).sort();
+  }, [pickerQ.data]);
+
+  const onSave = async () => {
+    try {
+      await update.mutateAsync({
+        docId: doc.doc_id,
+        acl: { public: isPublic, users, groups },
+      });
+      toast(`Updated access for ${doc.filename}`, "success");
+      onOpenChange(false);
+    } catch (e) {
+      const msg =
+        e instanceof ApiError ? `HTTP ${e.status}` : "update failed";
+      toast(`Failed to update access: ${msg}`, "error");
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit access · {doc.filename}</DialogTitle>
+          <DialogDescription>
+            Replace the document's ACL. Granting outside the owner's
+            department is the main use case (e.g. enable HR + IT to share
+            one doc without either re-uploading).
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="flex items-center gap-2">
+            <input
+              id="acl-public"
+              type="checkbox"
+              checked={isPublic}
+              onChange={(e) => setIsPublic(e.target.checked)}
+            />
+            <Label htmlFor="acl-public">Public (anyone can read)</Label>
+          </div>
+          <div>
+            <Label htmlFor="acl-users" className="text-xs">
+              Users
+            </Label>
+            <MultiSelectChips
+              id="acl-users"
+              value={users}
+              onChange={setUsers}
+              suggestions={userSuggestions}
+              allowCustom
+              placeholder="click to pick or type"
+            />
+          </div>
+          <div>
+            <Label htmlFor="acl-groups" className="text-xs">
+              Groups
+            </Label>
+            <MultiSelectChips
+              id="acl-groups"
+              value={groups}
+              onChange={setGroups}
+              suggestions={groupSuggestions}
+              allowCustom
+              placeholder="click to pick or type"
+            />
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Owner remains <b>{doc.owner_id}</b> regardless of ACL changes.
+            Deletion still requires owner or admin.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={onSave} disabled={update.isPending}>
+            {update.isPending ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>

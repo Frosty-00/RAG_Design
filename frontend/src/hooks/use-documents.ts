@@ -66,6 +66,28 @@ export function useDeleteDocument() {
   });
 }
 
+export interface AclPayload {
+  public: boolean;
+  users: string[];
+  groups: string[];
+}
+
+/** Admin-only: replace a doc's ACL wholesale.
+ *  Use cases: enable HR + IT cross-department access, narrow over-broad
+ *  grants, revoke a private grant. Owner-only delete is the only stricter
+ *  gate; everything else flows through this. */
+export function useUpdateDocAcl() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ docId, acl }: { docId: string; acl: AclPayload }) =>
+      api.patch<DocumentMeta>(
+        `/api/v1/documents/${encodeURIComponent(docId)}/acl`,
+        acl,
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["documents"] }),
+  });
+}
+
 export interface ChunkPreview {
   chunk_id: string;
   text: string;

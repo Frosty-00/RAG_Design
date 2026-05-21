@@ -49,6 +49,13 @@ export const api = {
       headers: { ...authHeaders() },
     }).then(handle<T>);
   },
+  patch<T>(path: string, body?: unknown): Promise<T> {
+    return fetch(path, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", ...authHeaders() },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    }).then(handle<T>);
+  },
   upload<T>(path: string, formData: FormData): Promise<T> {
     return fetch(path, {
       method: "POST",
