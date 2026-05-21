@@ -71,6 +71,19 @@ class Requester:
     user_id: str
     groups: list[str] = field(default_factory=list)
     is_admin: bool = False
+    # Departments this user *manages* (READ-only privilege). A manager of
+    # `hr` sees every doc any HR member can see, even if the doc was
+    # individually granted to a specific HR person via ACL.users. This
+    # mirrors org reality: "an employee has access to a doc → their
+    # manager logically also has access". Manager scope NEVER grants
+    # write/upload/delete privileges; those still flow through ownership
+    # or actual group membership.
+    managed_groups: list[str] = field(default_factory=list)
+    # Cached "every user_id that belongs to any of `managed_groups`" —
+    # populated by the request-context builder so retrieval ACL filters
+    # can include `owner_id in [...]` without re-scanning Redis per query.
+    # Empty when the caller manages no groups.
+    managed_user_ids: list[str] = field(default_factory=list)
 
 
 def _build_schema() -> CollectionSchema:
@@ -103,6 +116,12 @@ def _build_acl_expr(requester: Requester | None) -> str:
 
     requester=None means "no auth context" — only public docs visible.
     Admin sees everything (returns just is_latest filter).
+
+    Manager scope: if requester.managed_groups is non-empty, the filter
+    also matches docs whose acl.groups overlaps managed_groups OR whose
+    owner_id is in managed_user_ids (anyone in those groups). Members of
+    a managed department's specifically-granted private docs are also
+    visible via the `acl.users` overlap with managed_user_ids.
     """
     if requester is not None and requester.is_admin:
         return "is_latest == true"
@@ -121,6 +140,20 @@ def _build_acl_expr(requester: Requester | None) -> str:
     if requester.groups:
         groups_json = json.dumps(requester.groups)
         clauses.append(f"json_contains_any(acl[\"groups\"], {groups_json})")
+
+    # Manager extension — three additional ways a managed-group leader
+    # can reach a doc, each mirroring how a regular member would.
+    if requester.managed_groups:
+        mg_json = json.dumps(requester.managed_groups)
+        clauses.append(f"json_contains_any(acl[\"groups\"], {mg_json})")
+        if requester.managed_user_ids:
+            # owner is one of my reports
+            owners_json = json.dumps(requester.managed_user_ids)
+            clauses.append(f"owner_id in {owners_json}")
+            # doc privately shared with one of my reports
+            clauses.append(
+                f"json_contains_any(acl[\"users\"], {owners_json})"
+            )
 
     or_clause = " or ".join(clauses)
     return f"({or_clause}) and is_latest == true"
@@ -205,6 +238,32 @@ class MilvusRepository:
         rows = [self._to_row(c) for c in chunks]
         result = self._client.upsert(self._collection, rows)
         return int(result.get("upsert_count", len(chunks)))
+
+    def update_acl_by_doc(self, doc_id: str, new_acl: dict) -> int:
+        """Bulk-update the `acl` JSON field on every chunk of a doc.
+
+        Used when a second uploader (different user / department) re-uploads
+        the same content — we don't re-ingest, we extend the existing doc's
+        ACL to union in the new caller's groups/users. All chunks for the
+        doc share one ACL by construction; this method keeps them in sync.
+
+        Returns number of rows updated.
+        """
+        rows = self._client.query(
+            self._collection,
+            filter=f'doc_id == {_quote(doc_id)}',
+            output_fields=[
+                "chunk_id", "doc_id", "doc_version", "text",
+                "owner_id", "is_latest", "acl", "dense", "sparse", "metadata",
+            ],
+        )
+        if not rows:
+            return 0
+        for row in rows:
+            row["acl"] = new_acl
+        self._client.upsert(self._collection, rows)
+        log.info("milvus.acl.updated", doc_id=doc_id, count=len(rows))
+        return len(rows)
 
     def mark_old_versions_inactive(self, doc_id: str, keep_version: int) -> int:
         """Flip is_latest=false for all chunks of `doc_id` whose version != keep_version.

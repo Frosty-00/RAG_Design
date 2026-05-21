@@ -35,11 +35,23 @@ def _yyyymmdd(ts: float | None = None) -> str:
     return time.strftime("%Y%m%d", time.gmtime(ts) if ts is not None else time.gmtime())
 
 
-def _doc_visible_to(meta: dict, user_id: str, user_groups: set[str]) -> bool:
+def _doc_visible_to(
+    meta: dict,
+    user_id: str,
+    user_groups: set[str],
+    *,
+    managed_groups: set[str] | None = None,
+    managed_user_ids: set[str] | None = None,
+) -> bool:
     """ACL match identical to the Milvus `_build_acl_expr` semantics.
     Used by `list_visible_docs` to filter the Redis doc-meta index so the
-    Documents page sees exactly what retrieval would surface — no more,
-    no less."""
+    Documents page sees exactly what retrieval would surface.
+
+    Manager scope adds three extra matches (read-only):
+      * doc.acl.groups overlaps managed_groups
+      * doc.owner_id is in managed_user_ids
+      * doc.acl.users overlaps managed_user_ids
+    """
     if meta.get("owner_id") == user_id:
         return True
     acl = meta.get("acl") or {}
@@ -50,6 +62,14 @@ def _doc_visible_to(meta: dict, user_id: str, user_groups: set[str]) -> bool:
     doc_groups = set(acl.get("groups") or [])
     if doc_groups & user_groups:
         return True
+    # Manager extension
+    if managed_groups and (doc_groups & managed_groups):
+        return True
+    if managed_user_ids:
+        if meta.get("owner_id") in managed_user_ids:
+            return True
+        if set(acl.get("users") or []) & managed_user_ids:
+            return True
     return False
 
 
@@ -136,13 +156,21 @@ class RedisRepository:
         return f"auth:user:{user_id}"
 
     async def store_token(
-        self, raw_token: str, *, user_id: str, groups: list[str], role: str = "user"
+        self,
+        raw_token: str,
+        *,
+        user_id: str,
+        groups: list[str],
+        role: str = "user",
+        managed_groups: list[str] | None = None,
     ) -> str:
-        """Hashes the raw token, persists role/groups under the hash. Returns hash."""
+        """Hashes the raw token, persists role/groups/managed_groups under
+        the hash. Returns hash."""
         h = sha256_hex(raw_token)
         await self._set_json(
             self._token_key(h),
             {"user_id": user_id, "groups": groups, "role": role,
+             "managed_groups": managed_groups or [],
              "created_at": time.time()},
         )
         await self._client.sadd(self._user_tokens_key(user_id), h)
@@ -190,10 +218,24 @@ class RedisRepository:
                 "user_id": user_id,
                 "role": latest.get("role", "user"),
                 "groups": latest.get("groups", []),
+                "managed_groups": latest.get("managed_groups", []),
                 "n_tokens": len(hashes),
                 "has_predictable": has_predictable,
             }
         return list(out.values())
+
+    async def users_in_groups(self, groups: list[str]) -> list[str]:
+        """Return every user_id whose `groups` field overlaps with the input.
+        Used to expand a manager's `managed_groups` into the concrete set of
+        user_ids that the manager can see-through-others' permissions."""
+        if not groups:
+            return []
+        gs = set(groups)
+        users = await self.list_all_users()
+        return sorted(
+            u["user_id"] for u in users
+            if set(u.get("groups", [])) & gs
+        )
 
     async def revoke_all_user_tokens(self, user_id: str) -> int:
         """Delete every token belonging to `user_id`. Returns count removed.
@@ -277,7 +319,12 @@ class RedisRepository:
         return out
 
     async def list_visible_docs(
-        self, user_id: str, groups: list[str],
+        self,
+        user_id: str,
+        groups: list[str],
+        *,
+        managed_groups: list[str] | None = None,
+        managed_user_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """All docs the caller can see — owner OR ACL.users OR ACL.groups OR public.
 
@@ -288,12 +335,17 @@ class RedisRepository:
         a doc admin had explicitly granted them access to.
         """
         user_groups = set(groups or [])
+        mg = set(managed_groups or [])
+        mu = set(managed_user_ids or [])
         out: list[dict[str, Any]] = []
         async for key in self._client.scan_iter(match="docs:meta:*"):
             meta = await self._get_json(key)
             if not meta:
                 continue
-            if _doc_visible_to(meta, user_id, user_groups):
+            if _doc_visible_to(
+                meta, user_id, user_groups,
+                managed_groups=mg, managed_user_ids=mu,
+            ):
                 out.append(meta)
         return out
 

@@ -16,6 +16,7 @@ export function UploadDropzone() {
   const startInflight = useUploadsStore((s) => s.start);
   const succeedInflight = useUploadsStore((s) => s.succeed);
   const failInflight = useUploadsStore((s) => s.fail);
+  const dismissInflight = useUploadsStore((s) => s.dismiss);
   const [dragOver, setDragOver] = useState(false);
   const [pending, setPending] = useState(0);
   const [isPublic, setIsPublic] = useState(false);
@@ -88,10 +89,27 @@ export function UploadDropzone() {
               users: usersCsv,
               groups: groupsCsv,
             });
-            succeedInflight(tempId, res.doc_id, res.version);
             if (res.status === "already_exists") {
-              toast(`${file.name}: already in library (v${res.version})`, "info");
+              // Backend deduped on content hash AND requester asked for no
+              // new ACL grants (or grants were already covered). Drop row.
+              dismissInflight(tempId);
+              toast(
+                `${file.name}: already in library (v${res.version}).`,
+                "info",
+              );
+            } else if (res.status === "acl_extended") {
+              // Same content as an existing doc but the requester's ACL
+              // request added new groups/users. Backend has merged them
+              // into the existing doc. Drop the optimistic row — the doc
+              // will now appear in the regular list refresh.
+              dismissInflight(tempId);
+              toast(
+                `${file.name}: already in library — your department was ` +
+                  `granted access (v${res.version}).`,
+                "success",
+              );
             } else {
+              succeedInflight(tempId, res.doc_id, res.version);
               toast(`${file.name}: queued (v${res.version})`, "success");
             }
           } catch (e) {

@@ -13,6 +13,7 @@ export interface MeResponse {
   user_id: string;
   role: "user" | "admin";
   groups: string[];
+  managed_groups: string[];
   is_admin: boolean;
 }
 
@@ -20,6 +21,9 @@ export interface UserInfo {
   user_id: string;
   role: "user" | "admin";
   groups: string[];
+  /** Departments this user can READ all docs of (manager scope).
+   *  Empty for regular employees. */
+  managed_groups: string[];
   n_tokens: number;
   /** When non-null, this is the canonical `{user_id}-dev-token` and the
    *  admin UI can offer one-click "switch to this user". */
@@ -30,6 +34,8 @@ export interface CreateUserPayload {
   user_id: string;
   groups: string[];
   role: "user" | "admin";
+  /** Departments to grant manager-read visibility over. */
+  managed_groups?: string[];
   predictable?: boolean;
 }
 
@@ -38,6 +44,7 @@ export interface CreateUserResponse {
   user_id: string;
   role: string;
   groups: string[];
+  managed_groups: string[];
 }
 
 /** "Who am I right now" — cheap, cached for the session. */

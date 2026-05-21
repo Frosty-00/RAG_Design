@@ -28,6 +28,11 @@ class TokenIssueRequest(BaseModel):
                          pattern=r"^[A-Za-z0-9_\-]+$")
     groups: list[str] = []
     role: Literal["user", "admin"] = "user"
+    # Departments this user MANAGES (read-only view-through). A manager
+    # of `hr` can see every doc accessible to anyone in HR — supports
+    # "team lead sees what their reports see" without making them admin.
+    # Independent from `groups` (you can manage a dept you're not in).
+    managed_groups: list[str] = []
     # When True (default), the issued token is the predictable string
     # `{user_id}-dev-token` — great for local demos so admin can hand
     # someone a memorable token. Set False in production to fall back
@@ -40,6 +45,7 @@ class TokenIssueResponse(BaseModel):
     user_id: str
     role: str
     groups: list[str] = []
+    managed_groups: list[str] = []
 
 
 def _predictable_token(user_id: str) -> str:
@@ -63,14 +69,23 @@ async def issue_token(
     redis = RedisRepository()
     try:
         await redis.store_token(
-            raw, user_id=body.user_id, groups=body.groups, role=body.role,
+            raw,
+            user_id=body.user_id,
+            groups=body.groups,
+            role=body.role,
+            managed_groups=body.managed_groups,
         )
     finally:
         await redis.close()
     log.info("admin.token_issued", user=body.user_id, role=body.role,
-             predictable=body.predictable)
+             predictable=body.predictable,
+             managed_groups=body.managed_groups)
     return TokenIssueResponse(
-        token=raw, user_id=body.user_id, role=body.role, groups=body.groups,
+        token=raw,
+        user_id=body.user_id,
+        role=body.role,
+        groups=body.groups,
+        managed_groups=body.managed_groups,
     )
 
 
@@ -91,6 +106,7 @@ class UserInfo(BaseModel):
     user_id: str
     role: str
     groups: list[str] = []
+    managed_groups: list[str] = []
     n_tokens: int
     # The most recently-issued predictable token, if it still exists.
     # Lets the admin UI offer one-click "switch to this user".
@@ -114,6 +130,7 @@ async def list_users(
             user_id=u["user_id"],
             role=u.get("role", "user"),
             groups=u.get("groups", []),
+            managed_groups=u.get("managed_groups", []),
             n_tokens=u.get("n_tokens", 0),
             # Only surface the predictable token if it actually resolves;
             # avoids handing out a guess that's been revoked.
@@ -157,6 +174,7 @@ class MeResponse(BaseModel):
     user_id: str
     role: str
     groups: list[str] = []
+    managed_groups: list[str] = []
     is_admin: bool
 
 
@@ -171,6 +189,7 @@ async def me(
         user_id=requester.user_id,
         role="admin" if requester.is_admin else "user",
         groups=list(requester.groups),
+        managed_groups=list(requester.managed_groups),
         is_admin=requester.is_admin,
     )
 

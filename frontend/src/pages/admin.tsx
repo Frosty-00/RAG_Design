@@ -50,6 +50,7 @@ export default function AdminPage() {
 
   const [userId, setUserId] = useState("");
   const [groups, setGroups] = useState("");
+  const [managedGroups, setManagedGroups] = useState("");
   const [role, setRole] = useState<"user" | "admin">("user");
 
   const [justIssued, setJustIssued] = useState<CreateUserResponse | null>(null);
@@ -66,12 +67,17 @@ export default function AdminPage() {
           .split(",")
           .map((g) => g.trim())
           .filter(Boolean),
+        managed_groups: managedGroups
+          .split(",")
+          .map((g) => g.trim())
+          .filter(Boolean),
         role,
         predictable: true,
       });
       setJustIssued(res);
       setUserId("");
       setGroups("");
+      setManagedGroups("");
       setRole("user");
       toast(`Issued token for ${res.user_id}`, "success");
     } catch (e) {
@@ -158,6 +164,25 @@ export default function AdminPage() {
               />
             </div>
             <div>
+              <Label htmlFor="managed">
+                Manages (comma-separated)
+                <span className="ml-2 text-[10px] text-muted-foreground">
+                  · read-through any doc accessible to these depts
+                </span>
+              </Label>
+              <Input
+                id="managed"
+                value={managedGroups}
+                onChange={(e) => setManagedGroups(e.target.value)}
+                placeholder="hr   (e.g. HR director)"
+              />
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                Independent from <b>Groups</b>. A user managing <code>hr</code>
+                {" "}sees every doc HR members see — even private grants to
+                specific HR people. Doesn't grant upload/delete rights.
+              </p>
+            </div>
+            <div>
               <Label>Role</Label>
               <div className="flex gap-2 pt-1">
                 <Button
@@ -216,6 +241,7 @@ export default function AdminPage() {
                     <th className="px-3 py-2">User</th>
                     <th className="px-3 py-2">Role</th>
                     <th className="px-3 py-2">Groups</th>
+                    <th className="px-3 py-2">Manages</th>
                     <th className="px-3 py-2">Tokens</th>
                     <th className="px-3 py-2 text-right"></th>
                   </tr>
@@ -350,6 +376,19 @@ function UserRow({
       </td>
       <td className="px-3 py-2 text-xs text-muted-foreground">
         {user.groups.length ? user.groups.join(", ") : "—"}
+      </td>
+      <td className="px-3 py-2 text-xs text-muted-foreground">
+        {user.managed_groups.length ? (
+          <div className="flex flex-wrap gap-1">
+            {user.managed_groups.map((g) => (
+              <Badge key={g} variant="warning" className="text-[10px]">
+                {g}
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          "—"
+        )}
       </td>
       <td className="px-3 py-2 tabular-nums text-xs">{user.n_tokens}</td>
       <td className="px-3 py-2 text-right">

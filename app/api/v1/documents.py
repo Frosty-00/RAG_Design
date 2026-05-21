@@ -59,16 +59,62 @@ def _build_acl(public: bool, users: list[str], groups: list[str]) -> dict:
 def _can_view(meta: dict, requester: Requester) -> bool:
     """Read-access predicate. Mirrors `list_visible_docs` semantics so a
     doc visible in the list is also openable for detail/chunks/task.
-    admin → unconditional yes."""
+    admin → unconditional yes. Manager scope passed through so a
+    department head can open any doc accessible to their reports."""
     if requester.is_admin:
         return True
-    return _doc_visible_to(meta, requester.user_id, set(requester.groups))
+    return _doc_visible_to(
+        meta,
+        requester.user_id,
+        set(requester.groups),
+        managed_groups=set(requester.managed_groups),
+        managed_user_ids=set(requester.managed_user_ids),
+    )
 
 
 def _can_modify(meta: dict, requester: Requester) -> bool:
     """Write-access predicate (delete). Stricter than view — only the
     owner or an admin may delete; ACL-shared collaborators cannot."""
     return requester.is_admin or meta.get("owner_id") == requester.user_id
+
+
+def _union_acl_additions(
+    *,
+    existing_acl: dict,
+    add_users: list[str],
+    add_groups: list[str],
+    add_public: bool,
+) -> tuple[dict, bool]:
+    """Merge a re-uploader's ACL additions into the existing doc ACL.
+
+    Returns (new_acl, changed). `changed` is False when the additions are
+    a subset of what's already granted — caller can then short-circuit
+    without touching Milvus/Redis.
+
+    Important: this is **additive only** — we never narrow access. So a
+    re-upload can grant their own department visibility, but cannot
+    remove anyone else's. The original owner / admin stays in control of
+    actual revocation.
+    """
+    cur_users = set(existing_acl.get("users") or [])
+    cur_groups = set(existing_acl.get("groups") or [])
+    cur_public = bool(existing_acl.get("public"))
+
+    new_users = cur_users | set(add_users)
+    new_groups = cur_groups | set(add_groups)
+    new_public = cur_public or add_public
+
+    changed = (
+        new_users != cur_users
+        or new_groups != cur_groups
+        or new_public != cur_public
+    )
+    new_acl = {
+        "public": new_public,
+        "users": sorted(new_users),
+        "groups": sorted(new_groups),
+    }
+    return new_acl, changed
 
 
 @router.post("", response_model=UploadResponse)
@@ -131,6 +177,54 @@ async def upload(
     try:
         existing = await redis.get_doc_meta(doc_id)
         if existing and existing.get("latest_status") == "done":
+            # Content already in library. Instead of silently dropping the
+            # uploader's ACL request (which leaves them unable to see the
+            # doc even though they hold the content), union the new caller's
+            # ACL additions into the existing record. This matches the
+            # intuitive enterprise behaviour: "I have this file and want my
+            # department to be able to find it too." Owner stays as the
+            # original uploader; admin still controls the canonical ACL.
+            updated_acl, changed = _union_acl_additions(
+                existing_acl=existing.get("acl") or {},
+                add_users=parsed_users,
+                add_groups=parsed_groups,
+                # `public` from non-admin would have 403'd above; safe to honour
+                # admin's public=true if the existing doc wasn't public yet.
+                add_public=bool(public),
+            )
+            if changed:
+                # Update Milvus (so retrieval ACL filter sees the new groups)
+                # then Redis meta (so list_visible_docs / UI agree). Order
+                # matters: if Milvus succeeds but Redis fails, retrieval
+                # already allows the new caller (safe over-share, will be
+                # corrected next meta write); the reverse would be a sneaky
+                # invisible-access bug.
+                from app.repositories.milvus import MilvusRepository
+                MilvusRepository().update_acl_by_doc(doc_id, updated_acl)
+                MilvusRepository().client.flush(MilvusRepository().collection)
+
+                existing["acl"] = updated_acl
+                existing["updated_at"] = __import__("time").strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()
+                )
+                await redis.set_doc_meta(doc_id, existing)
+                # Invalidate retrieval cache so the new caller's next query
+                # actually sees the doc (cache key includes acl_scope, but
+                # other callers' caches need to refresh for the new content).
+                async for k in redis.client.scan_iter(match="ret:*"):
+                    await redis.client.delete(k)
+                log.info("api.upload.acl_extended",
+                         doc_id=doc_id, by=requester.user_id,
+                         added_users=parsed_users, added_groups=parsed_groups)
+                return UploadResponse(
+                    doc_id=doc_id,
+                    version=existing["latest_version"],
+                    task_id=existing.get("latest_task_id", ""),
+                    status="acl_extended",
+                    filename=existing["filename"],
+                )
+
+            # No new access requested → behave like before.
             return UploadResponse(
                 doc_id=doc_id,
                 version=existing["latest_version"],
@@ -215,7 +309,10 @@ async def list_documents(
             docs = await redis.list_all_docs()
         else:
             docs = await redis.list_visible_docs(
-                requester.user_id, list(requester.groups),
+                requester.user_id,
+                list(requester.groups),
+                managed_groups=list(requester.managed_groups),
+                managed_user_ids=list(requester.managed_user_ids),
             )
     finally:
         await redis.close()
