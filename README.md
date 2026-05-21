@@ -2,6 +2,19 @@
 
 Enterprise knowledge-base RAG system: **FastAPI + Milvus 2.4 + LlamaIndex + BGE-M3 + bge-reranker-v2-m3 + Vertex Gemini 2.5**, with a **React + TypeScript** frontend and a built-in **evaluation framework** (LLM-as-judge with Gemini 2.5 Pro).
 
+## 📺 Demo
+
+Scan to watch a short walkthrough on any phone (native player on iOS / Android):
+
+<p align="center">
+  <a href="https://frosty-00.github.io/RAG_Design/">
+    <img src="docs/video.png" alt="Scan to watch the demo video" width="200" />
+  </a>
+  <br />
+  <em>Or open directly:</em>
+  <a href="https://frosty-00.github.io/RAG_Design/">frosty-00.github.io/RAG_Design</a>
+</p>
+
 ## Quickstart (Windows)
 
 **Just one script — `run.bat`.** Double-click it; it handles everything:
