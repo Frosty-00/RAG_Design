@@ -7,12 +7,13 @@
  *
  *  Routing: only registered when current user has role=admin (see App.tsx).
  */
-import { Copy, LogIn, Plus, Shield, Trash2, User } from "lucide-react";
+import { Copy, LogIn, Plus, Shield, Trash2, User, Users } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Card,
   CardContent,
@@ -229,9 +230,17 @@ export default function AdminPage() {
             <p className="text-sm text-destructive">Failed to load users.</p>
           )}
           {users.data && users.data.length === 0 && (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No users yet. Create one on the left.
-            </p>
+            <EmptyState
+              icon={Users}
+              title="No team members yet"
+              description={
+                <>
+                  Add users to grant scoped access to the knowledge base.
+                  Tokens follow the predictable
+                  {" "}<code>{"{user_id}-dev-token"}</code> pattern.
+                </>
+              }
+            />
           )}
           {users.data && users.data.length > 0 && (
             <div className="overflow-x-auto">

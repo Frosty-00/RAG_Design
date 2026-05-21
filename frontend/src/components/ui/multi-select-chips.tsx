@@ -13,7 +13,8 @@
  *  still allowing free-text for forward-looking entries.
  */
 import { X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,33 @@ export function MultiSelectChips({
   const [input, setInput] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  // Anchor rect for the portalled dropdown. Recomputed on open + on
+  // scroll/resize so the dropdown stays glued under the input even if
+  // the user scrolls the page.
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+
+  const recomputeAnchor = () => {
+    if (containerRef.current) {
+      setAnchorRect(containerRef.current.getBoundingClientRect());
+    }
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    recomputeAnchor();
+  }, [open, value.length, input]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = () => recomputeAnchor();
+    window.addEventListener("scroll", handler, true);
+    window.addEventListener("resize", handler);
+    return () => {
+      window.removeEventListener("scroll", handler, true);
+      window.removeEventListener("resize", handler);
+    };
+  }, [open]);
 
   const filtered = useMemo(() => {
     const q = input.trim().toLowerCase();
@@ -72,6 +100,7 @@ export function MultiSelectChips({
   return (
     <div className={cn("relative", className)}>
       <div
+        ref={containerRef}
         className={cn(
           "flex min-h-[36px] flex-wrap items-center gap-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm",
           "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background",
@@ -141,44 +170,61 @@ export function MultiSelectChips({
         />
       </div>
 
-      {open && (filtered.length > 0 || (input.trim() && allowCustom)) && (
-        <div className="absolute left-0 right-0 z-20 mt-1 max-h-48 overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md">
-          {filtered.map((s) => (
-            <button
-              key={s}
-              type="button"
-              // onMouseDown fires before input's onBlur — without this, the
-              // blur closes the menu before the click registers.
-              onMouseDown={(e) => {
-                e.preventDefault();
-                add(s);
-              }}
-              className="block w-full px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
-            >
-              {s}
-            </button>
-          ))}
-          {/* "Add as new" affordance: when user typed something that isn't in
-              suggestions, show a row to confirm-add it. */}
-          {input.trim() &&
-            allowCustom &&
-            !suggestions.some(
-              (s) => s.toLowerCase() === input.trim().toLowerCase(),
-            ) && (
+      {/* Portal-rendered dropdown — escapes any parent stacking context
+          (the previous `<details>` + grid wrappers were trapping z-index
+          so the menu got clipped by sibling buttons below it). Position
+          is computed from the input's bounding rect on open + scroll. */}
+      {open &&
+        anchorRect &&
+        (filtered.length > 0 || (input.trim() && allowCustom)) &&
+        createPortal(
+          <div
+            style={{
+              position: "fixed",
+              top: anchorRect.bottom + 4,
+              left: anchorRect.left,
+              width: anchorRect.width,
+              zIndex: 9999,
+            }}
+            className="max-h-48 overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-lg"
+          >
+            {filtered.map((s) => (
               <button
+                key={s}
                 type="button"
+                // onMouseDown fires before input's onBlur — without this, the
+                // blur closes the menu before the click registers.
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  add(input);
+                  add(s);
                 }}
-                className="block w-full border-t px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                className="block w-full px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
               >
-                + Add <span className="font-mono">"{input.trim()}"</span> (not
-                in list)
+                {s}
               </button>
-            )}
-        </div>
-      )}
+            ))}
+            {/* "Add as new" affordance: when user typed something that isn't in
+                suggestions, show a row to confirm-add it. */}
+            {input.trim() &&
+              allowCustom &&
+              !suggestions.some(
+                (s) => s.toLowerCase() === input.trim().toLowerCase(),
+              ) && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    add(input);
+                  }}
+                  className="block w-full border-t px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                >
+                  + Add <span className="font-mono">"{input.trim()}"</span>{" "}
+                  (not in list)
+                </button>
+              )}
+          </div>,
+          document.body,
+        )}
 
       {emptySuggestionsHint &&
         suggestions.length === 0 &&

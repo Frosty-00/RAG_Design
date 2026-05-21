@@ -1,4 +1,4 @@
-import { Loader2, RefreshCw } from "lucide-react";
+import { FileUp, Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useMemo } from "react";
 
 import { DocumentRow, InflightRow } from "@/components/documents/document-row";
@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { useDocuments } from "@/hooks/use-documents";
 import { useUploadsStore } from "@/stores/uploads";
 
@@ -78,9 +79,17 @@ export default function DocumentsPage() {
             <p className="text-sm text-destructive">Failed to load documents.</p>
           )}
           {totalRows === 0 && (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No documents yet. Upload one to get started.
-            </p>
+            <EmptyState
+              icon={FileUp}
+              title="Your library is empty"
+              description={
+                <>
+                  Upload your first document to start building a smart
+                  knowledge base. Supported formats include PDF, DOCX,
+                  Markdown, HTML, XLSX, and images (OCR).
+                </>
+              }
+            />
           )}
           {totalRows > 0 && (
             <div className="overflow-x-auto">

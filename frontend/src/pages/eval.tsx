@@ -1,9 +1,10 @@
-import { Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { Loader2, RefreshCw, TestTube2, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { DatasetsTable } from "@/components/eval/datasets-table";
 import { DiffView } from "@/components/eval/diff-view";
 import { GenerateDatasetForm } from "@/components/eval/generate-dataset-form";
+import { EmptyState } from "@/components/ui/empty-state";
 import { StartRunForm } from "@/components/eval/start-run-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -152,9 +153,17 @@ export default function EvalPage() {
               <p className="text-sm text-destructive">Failed to load runs.</p>
             )}
             {runs.data && runs.data.length === 0 && (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                No runs yet. Start one on the left.
-              </p>
+              <EmptyState
+                icon={TestTube2}
+                title="No evaluations yet"
+                description={
+                  <>
+                    Pick a dataset on the left and start a run to measure
+                    retrieval quality and answer faithfulness. Each run
+                    persists on disk so you can compare changes over time.
+                  </>
+                }
+              />
             )}
             {runs.data && runs.data.length > 0 && (
               <div className="overflow-x-auto">

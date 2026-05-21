@@ -1,6 +1,8 @@
+import { Sparkles } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 import type { Citation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -20,9 +22,17 @@ export function MessageList({ messages, onCitationClick }: Props) {
 
   if (messages.length === 0) {
     return (
-      <div className="grid h-full place-items-center text-sm text-muted-foreground">
-        Ask a question to get started.
-      </div>
+      <EmptyState
+        icon={Sparkles}
+        title="Ask anything"
+        description={
+          <>
+            Your knowledge base is ready. Try a question — every answer
+            comes with citations you can click through to the source.
+          </>
+        }
+        className="h-full"
+      />
     );
   }
 

@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthGate } from "@/components/auth-gate";
-import { Nav } from "@/components/nav";
+import { Sidebar } from "@/components/sidebar";
 import { ToastViewport } from "@/components/ui/toast";
 import { useHealth } from "@/hooks/use-health";
 import AdminPage from "@/pages/admin";
@@ -16,23 +16,30 @@ export default function App() {
 
   return (
     <AuthGate>
-      <div className="flex h-full flex-col">
-        <Nav ready={ready} />
-        <main className="container flex-1 py-6">
-          <Routes>
-            <Route path="/" element={<Navigate to="/chat" replace />} />
-            <Route path="/chat" element={<ChatPage />} />
-            <Route path="/documents" element={<DocumentsPage />} />
-            <Route path="/eval" element={<EvalPage />} />
-            {/* /admin: page itself guards on role=admin via /admin/me;
-                Nav also hides the link unless admin, so non-admin users
-                practically never land here. Backend enforces the truth. */}
-            <Route path="/admin" element={<AdminPage />} />
-            {import.meta.env.DEV && (
-              <Route path="/debug" element={<DebugPage />} />
-            )}
-            <Route path="*" element={<Navigate to="/chat" replace />} />
-          </Routes>
+      {/* App shell: persistent left sidebar + scrolling main area. The
+          sidebar handles its own collapsed/expanded width transition,
+          main fills whatever's left so we don't need to recompute
+          layout when it toggles. */}
+      <div className="flex h-full">
+        <Sidebar ready={ready} />
+        <main className="flex-1 overflow-y-auto bg-background">
+          <div className="mx-auto max-w-7xl px-6 py-6">
+            <Routes>
+              <Route path="/" element={<Navigate to="/chat" replace />} />
+              <Route path="/chat" element={<ChatPage />} />
+              <Route path="/documents" element={<DocumentsPage />} />
+              <Route path="/eval" element={<EvalPage />} />
+              {/* /admin: page itself guards on role=admin via /admin/me;
+                  the sidebar also hides the link unless admin, so non-admin
+                  users practically never land here. Backend enforces the
+                  truth. */}
+              <Route path="/admin" element={<AdminPage />} />
+              {import.meta.env.DEV && (
+                <Route path="/debug" element={<DebugPage />} />
+              )}
+              <Route path="*" element={<Navigate to="/chat" replace />} />
+            </Routes>
+          </div>
         </main>
       </div>
       <ToastViewport />

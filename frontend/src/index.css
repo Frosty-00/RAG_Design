@@ -4,43 +4,59 @@
 
 @layer base {
   :root {
+    /* Brand: indigo-violet — distinctive but professional, common in
+       enterprise SaaS (Linear / Vercel / Stripe). HSL tuned so the
+       full Tailwind ladder remains usable. */
     --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --foreground: 224 22% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
+    --card-foreground: 224 22% 10%;
+    --primary: 244 78% 56%;          /* indigo-500ish */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 224 22% 10%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 224 9% 46%;
+    --accent: 244 100% 96%;           /* faint indigo tint for hover */
+    --accent-foreground: 244 78% 30%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 244 78% 56%;
     --radius: 0.5rem;
+
+    /* Sidebar surface — slightly cooler than `background` for visual
+       separation. Components reference these via Tailwind's
+       `bg-[hsl(var(--sidebar))]` pattern. */
+    --sidebar: 240 12% 98%;
+    --sidebar-foreground: 224 22% 18%;
+    --sidebar-border: 240 6% 90%;
+    --sidebar-accent: 244 78% 56%;
   }
   .dark {
-    --background: 240 10% 3.9%;
+    --background: 224 28% 7%;
     --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
+    --card: 224 28% 9%;
     --card-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
+    --primary: 244 78% 66%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 224 18% 16%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
+    --muted: 224 18% 16%;
+    --muted-foreground: 224 8% 64%;
+    --accent: 244 30% 22%;
     --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 224 18% 18%;
+    --input: 224 18% 18%;
+    --ring: 244 78% 66%;
+
+    --sidebar: 224 28% 5%;
+    --sidebar-foreground: 0 0% 88%;
+    --sidebar-border: 224 18% 14%;
+    --sidebar-accent: 244 78% 66%;
   }
 }
 
